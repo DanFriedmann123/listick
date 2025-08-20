@@ -1,0 +1,48 @@
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "listick-app-2024",
+          "appId": "1:351822399351:android:88f170f75a10487c400372",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "ios": {
+        "default": {
+          "projectId": "listick-app-2024",
+          "appId": "1:351822399351:ios:493ea2d12a90bf19400372",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "macos": {
+        "default": {
+          "projectId": "listick-app-2024",
+          "appId": "1:351822399351:ios:493ea2d12a90bf19400372",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "listick-app-2024",
+          "configurations": {
+            "android": "1:351822399351:android:88f170f75a10487c400372",
+            "ios": "1:351822399351:ios:493ea2d12a90bf19400372",
+            "macos": "1:351822399351:ios:493ea2d12a90bf19400372",
+            "web": "1:351822399351:web:240c4f27ecdb87b7400372",
+            "windows": "1:351822399351:web:71dbec39615cce4e400372"
+          }
+        }
+      }
+    }
+  }
+}

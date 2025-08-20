@@ -1,0 +1,15 @@
+# Cursor Rules for Listick Project
+
+## Code Style Rules
+
+### Avoid withOpacity
+
+- Do not use `withOpacity()` method calls in the codebase
+- Instead, use predefined color constants or create new color variables
+- This applies to all Flutter/Dart files in the project
+
+### Alternative Approaches
+
+- Use predefined theme colors with built-in opacity
+- Create custom color constants with specific opacity values
+- Use `Color.fromRGBO()` or `Color.fromARGB()` for custom opacity needs

@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    match /posts/{postId} {
+      allow read: if true; // Anyone can read posts
+      allow create: if request.auth != null; // Authenticated users can create posts
+      allow update, delete: if request.auth != null && 
+        request.auth.uid == resource.data.authorId; // Only author can update/delete
+    }
+    
+    match /posts/{postId}/comments/{commentId} {
+      allow read: if true; // Anyone can read comments
+      allow create: if request.auth != null; // Authenticated users can create comments
+      allow update, delete: if request.auth != null && 
+        request.auth.uid == resource.data.authorId; // Only comment author can update/delete
+    }
+    
+    match /posts/{postId}/likes/{userId} {
+      allow read: if true; // Anyone can read likes
+      allow write: if request.auth != null && 
+        request.auth.uid == userId; // Users can only manage their own likes
+    }
+    
+    match /demo_posts/{postId} {
+      allow read: if true; // Anyone can read demo posts
+      allow write: if false; // No one can modify demo posts
+      
+      // Allow authenticated users to create subcollections for likes and comments
+      match /likes/{userId} {
+        allow read: if true;
+        allow write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if request.auth != null;
+        allow update, delete: if request.auth != null && 
+          request.auth.uid == resource.data.authorId;
+      }
+    }
+    
+
+  }
+}

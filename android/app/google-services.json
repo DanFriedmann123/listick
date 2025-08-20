@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "351822399351",
+    "project_id": "listick-app-2024",
+    "storage_bucket": "listick-app-2024.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:351822399351:android:88f170f75a10487c400372",
+        "android_client_info": {
+          "package_name": "com.dodapps.listick"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "351822399351-2ha1oqr97m1flncu7jlln1s73049fsdb.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDUFVThM6EUxXG9BtEJVsYHVLwOPBWiXsI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "351822399351-2ha1oqr97m1flncu7jlln1s73049fsdb.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "351822399351-pqgm4ati3juf413nhq6uavp2f06r4f1h.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.dodapps.listick"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
