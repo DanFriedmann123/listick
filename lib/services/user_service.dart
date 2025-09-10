@@ -37,6 +37,8 @@ class UserService {
         'avatarUrl': avatarUrl,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
+        'followers': [],
+        'following': [],
         'followersCount': 0,
         'followingCount': 0,
         'listsCount': 0,
@@ -262,6 +264,106 @@ class UserService {
     } catch (e) {
       developer.log('Error updating user counts: ${e.toString()}');
       throw 'Failed to update user counts: ${e.toString()}';
+    }
+  }
+
+  // Follow a user
+  Future<void> followUser(String currentUserId, String targetUserId) async {
+    try {
+      final batch = _firestore.batch();
+
+      // Add targetUserId to current user's following array
+      final currentUserRef = _users.doc(currentUserId);
+      batch.update(currentUserRef, {
+        'following': FieldValue.arrayUnion([targetUserId]),
+        'followingCount': FieldValue.increment(1),
+      });
+
+      // Add currentUserId to target user's followers array
+      final targetUserRef = _users.doc(targetUserId);
+      batch.update(targetUserRef, {
+        'followers': FieldValue.arrayUnion([currentUserId]),
+        'followersCount': FieldValue.increment(1),
+      });
+
+      await batch.commit();
+      developer.log('Successfully followed user: $targetUserId');
+    } catch (e) {
+      developer.log('Error following user: ${e.toString()}');
+      throw 'Failed to follow user: ${e.toString()}';
+    }
+  }
+
+  // Unfollow a user
+  Future<void> unfollowUser(String currentUserId, String targetUserId) async {
+    try {
+      final batch = _firestore.batch();
+
+      // Remove targetUserId from current user's following array
+      final currentUserRef = _users.doc(currentUserId);
+      batch.update(currentUserRef, {
+        'following': FieldValue.arrayRemove([targetUserId]),
+        'followingCount': FieldValue.increment(-1),
+      });
+
+      // Remove currentUserId from target user's followers array
+      final targetUserRef = _users.doc(targetUserId);
+      batch.update(targetUserRef, {
+        'followers': FieldValue.arrayRemove([currentUserId]),
+        'followersCount': FieldValue.increment(-1),
+      });
+
+      await batch.commit();
+      developer.log('Successfully unfollowed user: $targetUserId');
+    } catch (e) {
+      developer.log('Error unfollowing user: ${e.toString()}');
+      throw 'Failed to unfollow user: ${e.toString()}';
+    }
+  }
+
+  // Check if current user is following target user
+  Future<bool> isFollowing(String currentUserId, String targetUserId) async {
+    try {
+      final doc = await _users.doc(currentUserId).get();
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        final following = List<String>.from(data['following'] ?? []);
+        return following.contains(targetUserId);
+      }
+      return false;
+    } catch (e) {
+      developer.log('Error checking follow status: ${e.toString()}');
+      return false;
+    }
+  }
+
+  // Get followers list
+  Future<List<String>> getFollowers(String userId) async {
+    try {
+      final doc = await _users.doc(userId).get();
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        return List<String>.from(data['followers'] ?? []);
+      }
+      return [];
+    } catch (e) {
+      developer.log('Error getting followers: ${e.toString()}');
+      throw 'Failed to get followers: ${e.toString()}';
+    }
+  }
+
+  // Get following list
+  Future<List<String>> getFollowing(String userId) async {
+    try {
+      final doc = await _users.doc(userId).get();
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        return List<String>.from(data['following'] ?? []);
+      }
+      return [];
+    } catch (e) {
+      developer.log('Error getting following: ${e.toString()}');
+      throw 'Failed to get following: ${e.toString()}';
     }
   }
 }

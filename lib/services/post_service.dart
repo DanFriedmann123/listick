@@ -271,6 +271,84 @@ class PostService {
     }
   }
 
+  // Update a post
+  Future<void> updatePost({
+    required String postId,
+    required String title,
+    required String description,
+    List<File>? newImages,
+    String? category,
+    required List<PostItem> items,
+    List<String>? tags,
+  }) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) throw 'User not authenticated';
+
+      final postRef = _posts.doc(postId);
+      final postDoc = await postRef.get();
+
+      if (!postDoc.exists) throw 'Post not found';
+
+      final postData = postDoc.data() as Map<String, dynamic>;
+      if (postData['authorId'] != user.uid) {
+        throw 'Only the author can edit this post';
+      }
+
+      Map<String, dynamic> updateData = {
+        'title': title,
+        'description': description,
+        'category': category,
+        'items': items.map((item) => item.toMap()).toList(),
+        'tags': tags ?? [],
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      // Handle new images if provided
+      if (newImages != null && newImages.isNotEmpty) {
+        // Delete old images from Storage
+        final oldImageUrls = List<String>.from(postData['imageUrls'] ?? []);
+        for (final imageUrl in oldImageUrls) {
+          try {
+            final ref = _storage.refFromURL(imageUrl);
+            await ref.delete();
+          } catch (e) {
+            developer.log('Error deleting old image: $e');
+          }
+        }
+
+        // Upload new images
+        final List<String> imageUrls = [];
+        for (int i = 0; i < newImages.length; i++) {
+          final imageFile = newImages[i];
+          final fileName =
+              'posts/${user.uid}_${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
+          final ref = _storage.ref().child(fileName);
+
+          final uploadTask = ref.putFile(imageFile);
+          final snapshot = await uploadTask.timeout(
+            const Duration(seconds: 60),
+            onTimeout: () => throw 'Timeout uploading image ${i + 1}',
+          );
+          final downloadUrl = await snapshot.ref.getDownloadURL().timeout(
+            const Duration(seconds: 30),
+            onTimeout:
+                () => throw 'Timeout getting download URL for image ${i + 1}',
+          );
+          imageUrls.add(downloadUrl);
+        }
+
+        updateData['imageUrls'] = imageUrls;
+      }
+
+      await postRef.update(updateData);
+      developer.log('Post updated successfully');
+    } catch (e) {
+      developer.log('Error updating post: $e');
+      rethrow;
+    }
+  }
+
   // Delete a post
   Future<void> deletePost(String postId) async {
     try {
@@ -388,5 +466,38 @@ class PostService {
       developer.log('Error checking if user bookmarked post: $e');
       return false;
     }
+  }
+
+  // Get posts from users that the current user follows
+  Stream<List<Post>> getFollowingPostsStream({int limit = 10}) {
+    final user = _auth.currentUser;
+    if (user == null) {
+      return Stream.value([]);
+    }
+
+    return _users.doc(user.uid).snapshots().asyncExpand((userDoc) {
+      if (!userDoc.exists) {
+        return Stream.value(<Post>[]);
+      }
+
+      final userData = userDoc.data() as Map<String, dynamic>;
+      final following = List<String>.from(userData['following'] ?? []);
+
+      if (following.isEmpty) {
+        return Stream.value(<Post>[]);
+      }
+
+      // Get posts from followed users (without orderBy to avoid index requirement)
+      return _posts.where('authorId', whereIn: following).snapshots().map((
+        snapshot,
+      ) {
+        final posts =
+            snapshot.docs.map((doc) => Post.fromFirestore(doc)).toList();
+        // Sort by createdAt in memory (descending)
+        posts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        // Return limited results
+        return posts.take(limit).toList();
+      });
+    });
   }
 }

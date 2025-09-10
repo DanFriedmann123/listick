@@ -1,19 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
-
 import 'dart:io';
 import '../models/post.dart';
 import '../services/post_service.dart';
 
-class CreatePostScreen extends StatefulWidget {
-  const CreatePostScreen({super.key});
+class EditPostScreen extends StatefulWidget {
+  final Post post;
+
+  const EditPostScreen({super.key, required this.post});
 
   @override
-  State<CreatePostScreen> createState() => _CreatePostScreenState();
+  State<EditPostScreen> createState() => _EditPostScreenState();
 }
 
-class _CreatePostScreenState extends State<CreatePostScreen> {
+class _EditPostScreenState extends State<EditPostScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -50,7 +51,29 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   @override
   void initState() {
     super.initState();
-    _addItem(); // Add first item by default
+    _initializeData();
+  }
+
+  void _initializeData() {
+    // Initialize form fields with existing post data
+    _titleController.text = widget.post.title;
+    _descriptionController.text = widget.post.description;
+    _selectedCategory = widget.post.category;
+    _tags.addAll(widget.post.tags);
+
+    // Initialize items
+    for (final item in widget.post.items) {
+      final textController = TextEditingController(text: item.text);
+      final urlController = TextEditingController(text: item.url ?? '');
+      _itemControllers.add(textController);
+      _urlControllers.add(urlController);
+      _items.add(item);
+    }
+
+    // If no items, add one empty item
+    if (_items.isEmpty) {
+      _addItem();
+    }
   }
 
   @override
@@ -105,12 +128,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   }
 
   Future<void> _pickImages() async {
-    print('_pickImages called'); // Debug print
     try {
-      // Try to use ImagePicker directly first (like the test button does)
-      print('Creating ImagePicker instance'); // Debug print
       final picker = ImagePicker();
-      print('Picking image from gallery...'); // Debug print
       final image = await picker.pickImage(
         source: ImageSource.gallery,
         maxWidth: 1920,
@@ -118,7 +137,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         imageQuality: 85,
       );
 
-      print('Image picker result: ${image?.path}'); // Debug print
       if (image != null) {
         setState(() {
           final file = File(image.path);
@@ -135,26 +153,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         }
       }
     } catch (e) {
-      print('Error in _pickImages: $e'); // Debug print
-
-      // Only handle permissions if ImagePicker actually fails
       if (e.toString().contains('permission') ||
           e.toString().contains('denied')) {
-        print(
-          'Permission error detected, handling permissions...',
-        ); // Debug print
-
-        // Check permission status
         final status = await Permission.photos.status;
-        print('Photo permission status: $status'); // Debug print
-
         if (status.isDenied || status.isPermanentlyDenied) {
-          // Try to request permission
           final result = await Permission.photos.request();
-          print('Permission request result: $result'); // Debug print
-
           if (!result.isGranted) {
-            // Show settings dialog
             if (mounted) {
               final shouldOpenSettings = await showDialog<bool>(
                 context: context,
@@ -179,54 +183,11 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
               if (shouldOpenSettings == true) {
                 await openAppSettings();
-                // After returning from settings, try ImagePicker again
-                try {
-                  final picker = ImagePicker();
-                  final image = await picker.pickImage(
-                    source: ImageSource.gallery,
-                    maxWidth: 1920,
-                    maxHeight: 1080,
-                    imageQuality: 85,
-                  );
-
-                  if (image != null) {
-                    setState(() {
-                      final file = File(image.path);
-                      _selectedImages.add(file);
-                    });
-
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Image selected successfully after enabling permissions',
-                          ),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
-                    }
-                  }
-                } catch (retryError) {
-                  print(
-                    'Error after enabling permissions: $retryError',
-                  ); // Debug print
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Still unable to access photos: $retryError',
-                        ),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
               }
             }
           }
         }
       } else {
-        // Non-permission error
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -240,12 +201,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   }
 
   Future<void> _takePhoto() async {
-    print('_takePhoto called'); // Debug print
     try {
-      // Try to use ImagePicker directly first (like the test button does)
-      print('Creating ImagePicker instance for camera'); // Debug print
       final picker = ImagePicker();
-      print('Opening camera...'); // Debug print
       final image = await picker.pickImage(
         source: ImageSource.camera,
         maxWidth: 1920,
@@ -253,7 +210,6 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         imageQuality: 85,
       );
 
-      print('Camera result: ${image?.path}'); // Debug print
       if (image != null) {
         setState(() {
           final file = File(image.path);
@@ -270,26 +226,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         }
       }
     } catch (e) {
-      print('Error in _takePhoto: $e'); // Debug print
-
-      // Only handle permissions if ImagePicker actually fails
       if (e.toString().contains('permission') ||
           e.toString().contains('denied')) {
-        print(
-          'Permission error detected, handling permissions...',
-        ); // Debug print
-
-        // Check permission status
         final status = await Permission.camera.status;
-        print('Camera permission status: $status'); // Debug print
-
         if (status.isDenied || status.isPermanentlyDenied) {
-          // Try to request permission
           final result = await Permission.camera.request();
-          print('Camera permission request result: $result'); // Debug print
-
           if (!result.isGranted) {
-            // Show settings dialog
             if (mounted) {
               final shouldOpenSettings = await showDialog<bool>(
                 context: context,
@@ -314,54 +256,11 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
               if (shouldOpenSettings == true) {
                 await openAppSettings();
-                // After returning from settings, try ImagePicker again
-                try {
-                  final picker = ImagePicker();
-                  final image = await picker.pickImage(
-                    source: ImageSource.camera,
-                    maxWidth: 1920,
-                    maxHeight: 1080,
-                    imageQuality: 85,
-                  );
-
-                  if (image != null) {
-                    setState(() {
-                      final file = File(image.path);
-                      _selectedImages.add(file);
-                    });
-
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Photo taken successfully after enabling permissions',
-                          ),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
-                    }
-                  }
-                } catch (retryError) {
-                  print(
-                    'Error after enabling permissions: $retryError',
-                  ); // Debug print
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Still unable to access camera: $retryError',
-                        ),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
               }
             }
           }
         }
       } else {
-        // Non-permission error
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -396,17 +295,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     });
   }
 
-  Future<void> _createPost() async {
+  Future<void> _updatePost() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedImages.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select at least one image'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
 
     // Update items with text and URLs from controllers
     for (int i = 0; i < _items.length; i++) {
@@ -438,10 +328,11 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
     try {
       final postService = PostService();
-      await postService.createPost(
+      await postService.updatePost(
+        postId: widget.post.id,
         title: _titleController.text.trim(),
         description: _descriptionController.text.trim(),
-        images: _selectedImages,
+        newImages: _selectedImages.isNotEmpty ? _selectedImages : null,
         category: _selectedCategory,
         items: validItems,
         tags: _tags,
@@ -450,15 +341,15 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Post created successfully!'),
+            content: Text('Post updated successfully!'),
             backgroundColor: Colors.green,
           ),
         );
-        Navigator.of(context).pop();
+        Navigator.of(context).pop(true); // Return true to indicate success
       }
     } catch (e) {
       if (mounted) {
-        String errorMessage = 'Error creating post';
+        String errorMessage = 'Error updating post';
         if (e.toString().contains('Timeout')) {
           errorMessage =
               'Request timed out. Please check your internet connection and try again.';
@@ -468,7 +359,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           errorMessage =
               'Network error. Please check your internet connection.';
         } else {
-          errorMessage = 'Error creating post: ${e.toString()}';
+          errorMessage = 'Error updating post: ${e.toString()}';
         }
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -486,6 +377,66 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     }
   }
 
+  Future<void> _deletePost() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Delete Post'),
+            content: Text(
+              'Are you sure you want to delete "${widget.post.title}"? This action cannot be undone.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+    );
+
+    if (confirmed == true && mounted) {
+      setState(() {
+        _isLoading = true;
+      });
+
+      try {
+        final postService = PostService();
+        await postService.deletePost(widget.post.id);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Post deleted successfully'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.of(context).pop(true); // Return true to indicate deletion
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error deleting post: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -495,10 +446,17 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1A1A1A),
         foregroundColor: Colors.white,
-        title: const Text('Create Post'),
+        title: const Text('Edit Post'),
         actions: [
+          // Delete button
+          IconButton(
+            onPressed: _isLoading ? null : _deletePost,
+            icon: const Icon(Icons.delete, color: Colors.red),
+            tooltip: 'Delete Post',
+          ),
+          // Update button
           TextButton(
-            onPressed: _isLoading ? null : _createPost,
+            onPressed: _isLoading ? null : _updatePost,
             child:
                 _isLoading
                     ? const SizedBox(
@@ -510,7 +468,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                       ),
                     )
                     : const Text(
-                      'Post',
+                      'Update',
                       style: TextStyle(
                         color: Color(0xFFE91E63),
                         fontWeight: FontWeight.w600,
@@ -573,8 +531,59 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         ),
         const SizedBox(height: 12),
 
-        // Selected Images Grid
+        // Current images from post
+        if (widget.post.imageUrls.isNotEmpty) ...[
+          Text(
+            'Current Images:',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: Colors.grey[400],
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 100,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: widget.post.imageUrls.length,
+              itemBuilder: (context, index) {
+                return Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      widget.post.imageUrls[index],
+                      width: 100,
+                      height: 100,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          width: 100,
+                          height: 100,
+                          color: Colors.grey[800],
+                          child: const Icon(
+                            Icons.image_not_supported,
+                            color: Colors.grey,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Selected new images
         if (_selectedImages.isNotEmpty) ...[
+          Text(
+            'New Images:',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: Colors.grey[400],
+            ),
+          ),
+          const SizedBox(height: 8),
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -627,15 +636,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           children: [
             Expanded(
               child: ElevatedButton.icon(
-                onPressed:
-                    _isLoading
-                        ? null
-                        : () {
-                          print('Gallery button pressed'); // Debug print
-                          _pickImages();
-                        },
+                onPressed: _isLoading ? null : _pickImages,
                 icon: const Icon(Icons.photo_library),
-                label: const Text('Gallery'),
+                label: const Text('Add from Gallery'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: theme.colorScheme.primary,
                   foregroundColor: Colors.white,
@@ -646,15 +649,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
             const SizedBox(width: 12),
             Expanded(
               child: ElevatedButton.icon(
-                onPressed:
-                    _isLoading
-                        ? null
-                        : () {
-                          print('Camera button pressed'); // Debug print
-                          _takePhoto();
-                        },
+                onPressed: _isLoading ? null : _takePhoto,
                 icon: const Icon(Icons.camera_alt),
-                label: const Text('Camera'),
+                label: const Text('Take Photo'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: theme.colorScheme.secondary,
                   foregroundColor: Colors.white,
@@ -840,7 +837,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 _tags.map((tag) {
                   return Chip(
                     label: Text(tag),
-                    backgroundColor: theme.colorScheme.primary.withOpacity(0.2),
+                    backgroundColor: theme.colorScheme.primary.withValues(
+                      alpha: 0.2,
+                    ),
                     labelStyle: TextStyle(color: theme.colorScheme.primary),
                     deleteIcon: const Icon(Icons.close, size: 18),
                     onDeleted: () => _removeTag(tag),

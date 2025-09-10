@@ -576,6 +576,7 @@ class _DemoPostCardWrapperState extends State<_DemoPostCardWrapper> {
       videoUrl: null,
       category: widget.postData['category'],
       createdAt: widget.postData['createdAt'],
+      authorId: widget.postData['authorId'],
       authorName: widget.author?['name'] ?? 'Unknown User',
       authorAvatar: widget.author?['avatar'],
       itemCompletions: _itemCompletions,

@@ -8,30 +8,35 @@ import '../widgets/profile_info_card.dart';
 import '../widgets/profile_stats.dart';
 import '../widgets/profile_tabs.dart';
 
-class ProfileScreen extends StatefulWidget {
+class UserProfileScreen extends StatefulWidget {
+  final String userId;
+  final String? userName;
+  final String? userAvatar;
   final VoidCallback onBack;
-  final bool isOwnProfile;
-  final Function(String)? onPostClick;
 
-  const ProfileScreen({
+  const UserProfileScreen({
     super.key,
+    required this.userId,
+    this.userName,
+    this.userAvatar,
     required this.onBack,
-    this.isOwnProfile = true,
-    this.onPostClick,
   });
 
   @override
-  State<ProfileScreen> createState() => _ProfileScreenState();
+  State<UserProfileScreen> createState() => _UserProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen>
+class _UserProfileScreenState extends State<UserProfileScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final _authService = AuthService();
   final _userService = UserService();
+  final _postService = PostService();
   User? _currentUser;
   Map<String, dynamic>? _userProfile;
   bool _isLoading = true;
+  bool _isFollowing = false;
+  bool _isFollowLoading = false;
 
   @override
   void initState() {
@@ -52,18 +57,26 @@ class _ProfileScreenState extends State<ProfileScreen>
     });
 
     try {
-      final user = _authService.currentUser;
-      if (user != null) {
-        // Load both Firebase Auth user and Firestore profile data
-        final profile = await _userService.getUserProfile(user.uid);
+      final currentUser = _authService.currentUser;
+      if (currentUser != null) {
+        // Load the target user's profile data
+        final profile = await _userService.getUserProfile(widget.userId);
+
+        // Check if current user is following this user
+        final isFollowing = await _userService.isFollowing(
+          currentUser.uid,
+          widget.userId,
+        );
 
         setState(() {
-          _currentUser = user;
+          _currentUser = currentUser;
           _userProfile = profile;
+          _isFollowing = isFollowing;
         });
       }
     } catch (e) {
       // Handle error silently
+      debugPrint('Error loading user data: $e');
     } finally {
       setState(() {
         _isLoading = false;
@@ -71,21 +84,36 @@ class _ProfileScreenState extends State<ProfileScreen>
     }
   }
 
-  // Method to refresh user data (called after avatar upload)
-  Future<void> _refreshUserData() async {
+  Future<void> _toggleFollow() async {
+    if (_isFollowLoading) return;
+
+    setState(() {
+      _isFollowLoading = true;
+    });
+
     try {
-      final user = _authService.currentUser;
-      if (user != null) {
-        // Refresh both Firebase Auth user and Firestore profile data
-        final profile = await _userService.getUserProfile(user.uid);
+      final currentUser = _authService.currentUser;
+      if (currentUser != null) {
+        if (_isFollowing) {
+          await _userService.unfollowUser(currentUser.uid, widget.userId);
+        } else {
+          await _userService.followUser(currentUser.uid, widget.userId);
+        }
 
         setState(() {
-          _currentUser = user;
-          _userProfile = profile;
+          _isFollowing = !_isFollowing;
         });
       }
     } catch (e) {
-      // Handle error silently
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      setState(() {
+        _isFollowLoading = false;
+      });
     }
   }
 
@@ -95,7 +123,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       return _buildLoadingScreen();
     }
 
-    if (_currentUser == null) {
+    if (_userProfile == null) {
       return _buildErrorScreen();
     }
 
@@ -107,7 +135,7 @@ class _ProfileScreenState extends State<ProfileScreen>
             // Header
             ProfileHeader(
               onBack: widget.onBack,
-              isOwnProfile: widget.isOwnProfile,
+              isOwnProfile: false,
               onSettings: null,
             ),
 
@@ -121,25 +149,28 @@ class _ProfileScreenState extends State<ProfileScreen>
                     ProfileInfoCard(
                       user: _currentUser!,
                       userProfile: _userProfile,
-                      isOwnProfile: widget.isOwnProfile,
-                      onAvatarUpdated: _refreshUserData,
+                      isOwnProfile: false,
+                      onAvatarUpdated: null,
                     ),
+
+                    const SizedBox(height: 16),
+
+                    // Follow Button
+                    _buildFollowButton(),
 
                     const SizedBox(height: 24),
 
                     // Profile Stats
                     StreamBuilder<int>(
-                      stream: PostService()
-                          .getPostsByUserStream(
-                            FirebaseAuth.instance.currentUser?.uid ?? '',
-                          )
+                      stream: _postService
+                          .getPostsByUserStream(widget.userId)
                           .map((posts) => posts.length),
                       builder: (context, snapshot) {
                         final postsCount = snapshot.data ?? 0;
                         return ProfileStats(
                           postsCount: postsCount,
-                          followersCount: 0, // Get from saved lists service
-                          followingCount: 0, // Get from settings service
+                          followersCount: _userProfile?['followersCount'] ?? 0,
+                          followingCount: _userProfile?['followingCount'] ?? 0,
                           onTabChange: (index) {
                             _tabController.animateTo(index);
                           },
@@ -152,9 +183,9 @@ class _ProfileScreenState extends State<ProfileScreen>
                     // Tabs Content
                     ProfileTabs(
                       tabController: _tabController,
-                      isOwnProfile: widget.isOwnProfile,
-                      userId: _currentUser?.uid,
-                      onPostClick: widget.onPostClick,
+                      isOwnProfile: false,
+                      userId: widget.userId,
+                      onPostClick: null,
                     ),
                   ],
                 ),
@@ -162,6 +193,41 @@ class _ProfileScreenState extends State<ProfileScreen>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildFollowButton() {
+    final theme = Theme.of(context);
+
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: _isFollowLoading ? null : _toggleFollow,
+        style: ElevatedButton.styleFrom(
+          backgroundColor:
+              _isFollowing ? Colors.grey[800] : theme.colorScheme.primary,
+          foregroundColor: _isFollowing ? Colors.white : Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+        child:
+            _isFollowLoading
+                ? const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+                : Text(
+                  _isFollowing ? 'Following' : 'Follow',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
       ),
     );
   }
@@ -174,7 +240,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           children: [
             ProfileHeader(
               onBack: widget.onBack,
-              isOwnProfile: widget.isOwnProfile,
+              isOwnProfile: false,
               onSettings: null,
             ),
             Expanded(
@@ -200,7 +266,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           children: [
             ProfileHeader(
               onBack: widget.onBack,
-              isOwnProfile: widget.isOwnProfile,
+              isOwnProfile: false,
               onSettings: null,
             ),
             Expanded(
@@ -224,7 +290,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'There was an issue loading your profile data.',
+                      'There was an issue loading this user\'s profile.',
                       style: TextStyle(fontSize: 16, color: Colors.grey[400]),
                       textAlign: TextAlign.center,
                     ),

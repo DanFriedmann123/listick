@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/list_item.dart';
 import '../services/database_interaction_service.dart';
+import '../services/image_preload_service.dart';
+import '../services/link_click_service.dart';
+import '../screens/image_viewer_screen.dart';
+import '../screens/user_profile_screen.dart';
 import 'comment_dialog.dart';
 
 class EnhancedPostCard extends StatefulWidget {
@@ -17,6 +23,7 @@ class EnhancedPostCard extends StatefulWidget {
   final String? videoUrl;
   final String? category;
   final DateTime? createdAt;
+  final String authorId;
   final String authorName;
   final String? authorAvatar;
   final VoidCallback? onTap;
@@ -24,8 +31,10 @@ class EnhancedPostCard extends StatefulWidget {
   final VoidCallback? onBookmark;
   final VoidCallback? onShare;
   final VoidCallback? onComment;
+  final VoidCallback? onEdit;
   final Function(int, bool)? onItemToggle;
   final Map<int, bool>? itemCompletions;
+  final VoidCallback? onRefresh;
 
   const EnhancedPostCard({
     super.key,
@@ -42,6 +51,7 @@ class EnhancedPostCard extends StatefulWidget {
     this.videoUrl,
     this.category,
     this.createdAt,
+    required this.authorId,
     required this.authorName,
     this.authorAvatar,
     this.onTap,
@@ -49,8 +59,10 @@ class EnhancedPostCard extends StatefulWidget {
     this.onBookmark,
     this.onShare,
     this.onComment,
+    this.onEdit,
     this.onItemToggle,
     this.itemCompletions,
+    this.onRefresh,
   });
 
   @override
@@ -66,6 +78,8 @@ class _EnhancedPostCardState extends State<EnhancedPostCard> {
   int _actualCommentCount = 0;
   bool _isLoadingLikeState = true;
   bool _isCommentDialogOpen = false;
+  Map<int, int> _linkClickCounts = {};
+  Map<int, bool> _showClickCounts = {};
 
   @override
   void initState() {
@@ -74,6 +88,7 @@ class _EnhancedPostCardState extends State<EnhancedPostCard> {
     _pageController = PageController();
     _actualCommentCount = widget.commentCount;
     _loadInteractionState();
+    _loadLinkClickCounts();
   }
 
   Future<void> _loadInteractionState() async {
@@ -98,6 +113,21 @@ class _EnhancedPostCardState extends State<EnhancedPostCard> {
           _isLoadingLikeState = false;
         });
       }
+    }
+  }
+
+  Future<void> _loadLinkClickCounts() async {
+    try {
+      final clickCounts = await LinkClickService.getLinkClickCounts(
+        widget.postId,
+      );
+      if (mounted) {
+        setState(() {
+          _linkClickCounts = clickCounts;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading link click counts: $e');
     }
   }
 
@@ -226,11 +256,132 @@ class _EnhancedPostCardState extends State<EnhancedPostCard> {
     }
   }
 
+  Future<void> _launchUrl(String url, int itemId) async {
+    try {
+      print('Attempting to launch URL: $url'); // Debug log
+
+      // Track the link click
+      await LinkClickService.trackLinkClick(widget.postId, itemId);
+
+      // Check if this is the first click for this item
+      final isFirstClick = (_linkClickCounts[itemId] ?? 0) == 0;
+
+      // Update local state to show the new count
+      setState(() {
+        _linkClickCounts[itemId] = (_linkClickCounts[itemId] ?? 0) + 1;
+      });
+
+      // If this is the first click, show counter with fade-in animation
+      if (isFirstClick) {
+        setState(() {
+          _showClickCounts[itemId] = false;
+        });
+
+        // Trigger fade-in animation after a short delay
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (mounted) {
+            setState(() {
+              _showClickCounts[itemId] = true;
+            });
+          }
+        });
+      }
+
+      // Ensure URL has a protocol
+      String processedUrl = url.trim();
+      if (!processedUrl.startsWith('http://') &&
+          !processedUrl.startsWith('https://')) {
+        processedUrl = 'https://$processedUrl';
+      }
+
+      print('Processed URL: $processedUrl'); // Debug log
+
+      final Uri uri = Uri.parse(processedUrl);
+
+      print('Checking if URL can be launched...'); // Debug log
+      final canLaunch = await canLaunchUrl(uri);
+      print('Can launch URL: $canLaunch'); // Debug log
+
+      if (canLaunch) {
+        print('Launching URL: $processedUrl'); // Debug log
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        print('URL launched successfully'); // Debug log
+      } else {
+        print('Cannot launch URL: $processedUrl'); // Debug log
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Could not open $processedUrl'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error launching URL: $e'); // Debug log
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error opening link: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _openImageViewer(int initialIndex) async {
+    if (widget.imageUrls.isNotEmpty) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder:
+              (context) => ImageViewerScreen(
+                imageUrls: widget.imageUrls,
+                initialIndex: initialIndex,
+                title: widget.title,
+                description: widget.description,
+                items: widget.items,
+                authorName: widget.authorName,
+                authorAvatar: widget.authorAvatar,
+                createdAt: widget.createdAt,
+                postId: widget.postId,
+              ),
+        ),
+      );
+
+      // Trigger a refresh to reload completion states
+      if (mounted) {
+        widget.onRefresh?.call();
+      }
+    }
+  }
+
+  void _navigateToUserProfile() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder:
+            (context) => UserProfileScreen(
+              userId: widget.authorId,
+              userName: widget.authorName,
+              userAvatar: widget.authorAvatar,
+              onBack: () => Navigator.of(context).pop(),
+            ),
+      ),
+    );
+  }
+
   ImageProvider _getImageProvider(String imageUrl) {
     if (imageUrl.startsWith('assets/')) {
       return AssetImage(imageUrl);
     } else {
-      return NetworkImage(imageUrl);
+      // Check if image is preloaded first
+      final preloadedImage = ImagePreloadService().getPreloadedImage(imageUrl);
+      if (preloadedImage != null) {
+        return preloadedImage;
+      }
+
+      // Fallback to CachedNetworkImageProvider for better caching
+      return CachedNetworkImageProvider(imageUrl);
     }
   }
 
@@ -250,49 +401,79 @@ class _EnhancedPostCardState extends State<EnhancedPostCard> {
             // Header with author info
             Row(
               children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: theme.colorScheme.primary.withValues(
-                    alpha: 0.2,
-                  ),
-                  backgroundImage:
-                      widget.authorAvatar != null
-                          ? _getImageProvider(widget.authorAvatar!)
-                          : null,
-                  child:
-                      widget.authorAvatar == null
-                          ? Text(
-                            widget.authorName.isNotEmpty
-                                ? widget.authorName[0].toUpperCase()
-                                : 'U',
-                            style: TextStyle(
-                              color: theme.colorScheme.primary,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          )
-                          : null,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.authorName,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      if (widget.createdAt != null)
-                        Text(
-                          _getTimeAgo(),
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface.withValues(
-                              alpha: 0.6,
-                            ),
+                // Show edit button if onEdit is provided, otherwise show avatar
+                widget.onEdit != null
+                    ? GestureDetector(
+                      onTap: widget.onEdit,
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: 0.2,
+                          ),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: theme.colorScheme.primary,
+                            width: 2,
                           ),
                         ),
-                    ],
+                        child: Icon(
+                          Icons.edit,
+                          color: theme.colorScheme.primary,
+                          size: 20,
+                        ),
+                      ),
+                    )
+                    : GestureDetector(
+                      onTap: _navigateToUserProfile,
+                      child: CircleAvatar(
+                        radius: 20,
+                        backgroundColor: theme.colorScheme.primary.withValues(
+                          alpha: 0.2,
+                        ),
+                        backgroundImage:
+                            widget.authorAvatar != null
+                                ? _getImageProvider(widget.authorAvatar!)
+                                : null,
+                        child:
+                            widget.authorAvatar == null
+                                ? Text(
+                                  widget.authorName.isNotEmpty
+                                      ? widget.authorName[0].toUpperCase()
+                                      : 'U',
+                                  style: TextStyle(
+                                    color: theme.colorScheme.primary,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                )
+                                : null,
+                      ),
+                    ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: _navigateToUserProfile,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.authorName,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (widget.createdAt != null)
+                          Text(
+                            _getTimeAgo(),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.6,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 if (widget.category != null)
@@ -368,7 +549,18 @@ class _EnhancedPostCardState extends State<EnhancedPostCard> {
             const SizedBox(height: 8),
 
             // Description
-            if (widget.description.isNotEmpty) const SizedBox(height: 16),
+            if (widget.description.isNotEmpty) ...[
+              Text(
+                widget.description,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+                  height: 1.4,
+                ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 16),
+            ],
 
             // Media (images or video)
             if (widget.imageUrls.isNotEmpty || widget.videoUrl != null) ...[
@@ -703,23 +895,73 @@ class _EnhancedPostCardState extends State<EnhancedPostCard> {
                             : null,
                   ),
                 ),
-                if (item.url != null) ...[
+                if (item.url != null && item.url!.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   GestureDetector(
-                    onTap: () {
-                      // Placeholder: open URL
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Opening: ${item.url}'),
-                          duration: const Duration(seconds: 2),
+                    onTap: () => _launchUrl(item.url!, item.id),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: 0.3,
+                          ),
                         ),
-                      );
-                    },
-                    child: Text(
-                      item.url!,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.primary,
-                        decoration: TextDecoration.underline,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.link,
+                            size: 14,
+                            color: theme.colorScheme.primary,
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              item.url!,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          // Click count badge with fade-in animation
+                          if (_linkClickCounts[item.id] != null &&
+                              _linkClickCounts[item.id]! > 0) ...[
+                            AnimatedOpacity(
+                              opacity:
+                                  _showClickCounts[item.id] == true ? 1.0 : 0.0,
+                              duration: const Duration(milliseconds: 500),
+                              curve: Curves.easeInOut,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.primary,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '${_linkClickCounts[item.id]}',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ),
@@ -763,167 +1005,266 @@ class _EnhancedPostCardState extends State<EnhancedPostCard> {
     }
 
     if (widget.imageUrls.length == 1) {
-      return Image(
-        image: _getImageProvider(widget.imageUrls.first),
-        width: double.infinity,
-        height: 200,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
-          return Container(
-            color: Colors.grey[800],
-            child: const Icon(
-              Icons.image_not_supported,
-              size: 48,
-              color: Colors.grey,
-            ),
-          );
-        },
+      final imageUrl = widget.imageUrls.first;
+
+      return GestureDetector(
+        onTap: () => _openImageViewer(0),
+        child: Container(
+          width: double.infinity,
+          height: 200,
+          child:
+              imageUrl.startsWith('assets/')
+                  ? Image(
+                    image: AssetImage(imageUrl),
+                    width: double.infinity,
+                    height: 200,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        color: Colors.grey[800],
+                        child: const Icon(
+                          Icons.image_not_supported,
+                          size: 48,
+                          color: Colors.grey,
+                        ),
+                      );
+                    },
+                  )
+                  : CachedNetworkImage(
+                    imageUrl: imageUrl,
+                    width: double.infinity,
+                    height: 200,
+                    fit: BoxFit.cover,
+                    placeholder:
+                        (context, url) => Container(
+                          color: Colors.grey[800],
+                          child: const Center(
+                            child: CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Color(0xFFE91E63),
+                              ),
+                              strokeWidth: 2,
+                            ),
+                          ),
+                        ),
+                    errorWidget:
+                        (context, url, error) => Container(
+                          color: Colors.grey[800],
+                          child: const Icon(
+                            Icons.image_not_supported,
+                            size: 48,
+                            color: Colors.grey,
+                          ),
+                        ),
+                  ),
+        ),
       );
     }
 
     // Multiple images - show horizontal scrollable gallery
-    return Stack(
-      children: [
-        // Horizontal scrollable image gallery
-        PageView.builder(
-          controller: _pageController,
-          itemCount: widget.imageUrls.length,
-          physics: const ClampingScrollPhysics(),
-          onPageChanged: (index) {
-            setState(() {
-              _currentPage = index;
-            });
-          },
-          itemBuilder: (context, index) {
-            return Image(
-              image: _getImageProvider(widget.imageUrls[index]),
-              width: double.infinity,
-              height: 200,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  color: Colors.grey[800],
-                  child: const Icon(
-                    Icons.image_not_supported,
-                    size: 48,
-                    color: Colors.grey,
-                  ),
+    return GestureDetector(
+      onTap: () => _openImageViewer(_currentPage),
+      child: Stack(
+        children: [
+          // Horizontal scrollable image gallery
+          PageView.builder(
+            controller: _pageController,
+            itemCount: widget.imageUrls.length,
+            physics: const PageScrollPhysics(),
+            allowImplicitScrolling: true,
+            onPageChanged: (index) {
+              setState(() {
+                _currentPage = index;
+              });
+            },
+            itemBuilder: (context, index) {
+              final imageUrl = widget.imageUrls[index];
+
+              if (imageUrl.startsWith('assets/')) {
+                return Image(
+                  image: AssetImage(imageUrl),
+                  width: double.infinity,
+                  height: 200,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: Colors.grey[800],
+                      child: const Icon(
+                        Icons.image_not_supported,
+                        size: 48,
+                        color: Colors.grey,
+                      ),
+                    );
+                  },
                 );
-              },
-            );
-          },
-        ),
-        // Gradient overlay to make text readable (positioned above images but below UI elements)
-        Positioned.fill(
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.transparent,
-                  Colors.black.withValues(alpha: 0.3),
-                ],
-              ),
-            ),
+              } else {
+                return CachedNetworkImage(
+                  imageUrl: imageUrl,
+                  width: double.infinity,
+                  height: 200,
+                  fit: BoxFit.cover,
+                  placeholder:
+                      (context, url) => Container(
+                        color: Colors.grey[800],
+                        child: const Center(
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Color(0xFFE91E63),
+                            ),
+                            strokeWidth: 2,
+                          ),
+                        ),
+                      ),
+                  errorWidget:
+                      (context, url, error) => Container(
+                        color: Colors.grey[800],
+                        child: const Icon(
+                          Icons.image_not_supported,
+                          size: 48,
+                          color: Colors.grey,
+                        ),
+                      ),
+                );
+              }
+            },
           ),
-        ),
-        // Page indicator dots
-        Positioned(
-          bottom: 8,
-          left: 0,
-          right: 0,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(
-              widget.imageUrls.length,
-              (index) => Container(
-                width: 8,
-                height: 8,
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color:
-                      index == _currentPage
-                          ? Colors.white
-                          : Colors.white.withValues(alpha: 0.5),
+          // Gradient overlay to make text readable (positioned above images but below UI elements)
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.3),
+                  ],
                 ),
               ),
             ),
           ),
-        ),
-        // Navigation buttons (only show if there are multiple images) - positioned on top
-        if (widget.imageUrls.length > 1) ...[
-          // Previous button (<<)
+          // Page indicator dots
           Positioned(
-            left: 8,
-            top: 0,
-            bottom: 0,
-            child: Center(
-              child: GestureDetector(
-                onTap: () {
-                  if (_currentPage > 0) {
-                    _pageController.previousPage(
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeInOut,
-                    );
-                  }
-                },
-                child: Container(
-                  width: 40,
-                  height: 40,
+            bottom: 8,
+            left: 0,
+            right: 0,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(
+                widget.imageUrls.length,
+                (index) => Container(
+                  width: 8,
+                  height: 8,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.3),
                     shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.chevron_left,
                     color:
-                        _currentPage > 0
+                        index == _currentPage
                             ? Colors.white
-                            : Colors.white.withValues(alpha: 0.3),
-                    size: 24,
+                            : Colors.white.withValues(alpha: 0.5),
                   ),
                 ),
               ),
             ),
           ),
-          // Next button (>>)
-          Positioned(
-            right: 8,
-            top: 0,
-            bottom: 0,
-            child: Center(
-              child: GestureDetector(
-                onTap: () {
-                  if (_currentPage < widget.imageUrls.length - 1) {
-                    _pageController.nextPage(
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeInOut,
-                    );
-                  }
-                },
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.chevron_right,
-                    color:
-                        _currentPage < widget.imageUrls.length - 1
-                            ? Colors.white
-                            : Colors.white.withValues(alpha: 0.3),
-                    size: 24,
+          // Page indicators (dots) at the bottom
+          if (widget.imageUrls.length > 1)
+            Positioned(
+              bottom: 8,
+              left: 0,
+              right: 0,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(
+                  widget.imageUrls.length,
+                  (index) => Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color:
+                          _currentPage == index
+                              ? Colors.white
+                              : Colors.white.withValues(alpha: 0.4),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
+          // Navigation buttons (only show if there are multiple images) - positioned on top
+          if (widget.imageUrls.length > 1) ...[
+            // Previous button (<<)
+            Positioned(
+              left: 8,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: GestureDetector(
+                  onTap: () {
+                    if (_currentPage > 0) {
+                      _pageController.previousPage(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                      );
+                    }
+                  },
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.chevron_left,
+                      color:
+                          _currentPage > 0
+                              ? Colors.white
+                              : Colors.white.withValues(alpha: 0.3),
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // Next button (>>)
+            Positioned(
+              right: 8,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: GestureDetector(
+                  onTap: () {
+                    if (_currentPage < widget.imageUrls.length - 1) {
+                      _pageController.nextPage(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                      );
+                    }
+                  },
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.chevron_right,
+                      color:
+                          _currentPage < widget.imageUrls.length - 1
+                              ? Colors.white
+                              : Colors.white.withValues(alpha: 0.3),
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 }

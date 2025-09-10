@@ -3,97 +3,96 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/post.dart';
 import '../models/list_item.dart';
 import '../services/post_service.dart';
+import '../services/image_preload_service.dart';
 import '../widgets/enhanced_post_card.dart';
+import '../screens/edit_post_screen.dart';
 
 class ProfileTabs extends StatelessWidget {
   final TabController tabController;
   final bool isOwnProfile;
+  final String? userId; // Add userId parameter
   final Function(String)? onPostClick;
 
   const ProfileTabs({
     super.key,
     required this.tabController,
     required this.isOwnProfile,
+    this.userId,
     this.onPostClick,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // Tab Bar
-        Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF2A2A2A).withValues(alpha: 0.8),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.1),
-              width: 0.5,
-            ),
-          ),
-          child: TabBar(
-            controller: tabController,
-            indicator: BoxDecoration(
-              color: const Color(0xFFE91E63),
+    return IntrinsicHeight(
+      child: Column(
+        children: [
+          // Tab Bar
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF2A2A2A).withValues(alpha: 0.8),
               borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFFE91E63).withValues(alpha: 0.3),
-                  blurRadius: 8,
-                  spreadRadius: 1,
-                ),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.1),
+                width: 0.5,
+              ),
+            ),
+            child: TabBar(
+              controller: tabController,
+              indicator: BoxDecoration(
+                color: const Color(0xFFE91E63),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFE91E63).withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+              indicatorSize: TabBarIndicatorSize.tab,
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.grey.shade400,
+              labelStyle: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+              unselectedLabelStyle: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+              tabs: const [
+                Tab(text: 'Lists'),
+                Tab(text: 'Tagged'),
+                Tab(text: 'Activity'),
               ],
             ),
-            indicatorSize: TabBarIndicatorSize.tab,
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.grey.shade400,
-            labelStyle: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-            unselectedLabelStyle: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
-            tabs: const [
-              Tab(text: 'Lists'),
-              Tab(text: 'Saved'),
-              Tab(text: 'Activity'),
-            ],
           ),
-        ),
 
-        const SizedBox(height: 16),
+          const SizedBox(height: 16),
 
-        // Tab Content
-        SizedBox(
-          height: 400,
-          child: TabBarView(
-            controller: tabController,
-            children: [
-              _buildListsTab(),
-              _buildSavedTab(),
-              _buildActivityTab(context),
-            ],
+          // Tab Content
+          SizedBox(
+            height: 400,
+            child: TabBarView(
+              controller: tabController,
+              children: [
+                _buildListsTab(),
+                _buildTaggedTab(),
+                _buildActivityTab(context),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
   Widget _buildListsTab() {
-    if (!isOwnProfile) {
-      return _buildEmptyState(
-        icon: Icons.lock,
-        title: 'Private Lists',
-        subtitle: 'Only you can see your lists',
-      );
-    }
+    // Use the provided userId or fall back to current user's ID
+    final targetUserId = userId ?? FirebaseAuth.instance.currentUser?.uid ?? '';
 
     return StreamBuilder<List<Post>>(
-      stream: PostService().getPostsByUserStream(
-        FirebaseAuth.instance.currentUser?.uid ?? '',
-      ),
+      stream: PostService().getPostsByUserStream(targetUserId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -110,6 +109,11 @@ class ProfileTabs extends StatelessWidget {
 
         final posts = snapshot.data ?? [];
 
+        // Preload images for user's posts
+        if (posts.isNotEmpty) {
+          _preloadPostImages(posts);
+        }
+
         if (posts.isEmpty) {
           return _buildEmptyState(
             icon: Icons.list_alt,
@@ -119,87 +123,30 @@ class ProfileTabs extends StatelessWidget {
         }
 
         return ListView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
           itemCount: posts.length,
           itemBuilder: (context, index) {
             final post = posts[index];
-            return EnhancedPostCard(
-              postId: post.id,
-              title: post.title,
-              description: post.description,
-              items:
-                  post.items
-                      .map(
-                        (item) => ListItem(
-                          id: item.id,
-                          text: item.text,
-                          url: item.url,
-                          isCompleted: item.isCompleted,
-                          completionCount: item.completionCount,
-                        ),
-                      )
-                      .toList(),
-              likeCount: post.likeCount,
-              commentCount: post.commentCount,
-              viewCount: post.viewCount,
-              isTrending: post.isTrending,
-              isBookmarked: false,
-              imageUrls: post.imageUrls,
-              videoUrl: post.videoUrl,
-              category: post.category,
-              createdAt: post.createdAt,
-              authorName: post.authorName,
-              authorAvatar: post.authorAvatar,
-              itemCompletions: null,
-              onTap: () {
-                // Handle post tap
-                if (onPostClick != null) {
-                  onPostClick!(post.id);
-                }
-              },
-              onLike: () {
-                // Handle like
-              },
-              onBookmark: () {
-                // Handle bookmark
-              },
-              onShare: () {
-                // Handle share
-              },
-              onComment: () {
-                // Handle comment
-              },
-              onItemToggle: (itemId, isCompleted) {
-                // Handle item toggle
-              },
-            );
+            return _buildEditablePostCard(context, post);
           },
         );
       },
     );
   }
 
-  Widget _buildSavedTab() {
-    // Replace with actual saved lists data
+  Widget _buildTaggedTab() {
+    // Replace with actual tagged lists data
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 16),
       child: _buildEmptyState(
-        icon: Icons.bookmark,
-        title: 'No saved lists yet',
-        subtitle: 'Save lists you love to your personal collection',
+        icon: Icons.tag,
+        title: 'No tagged lists yet',
+        subtitle: 'Lists you\'re tagged in will appear here',
       ),
     );
   }
 
   Widget _buildActivityTab(BuildContext context) {
-    if (!isOwnProfile) {
-      return _buildEmptyState(
-        icon: Icons.lock,
-        title: 'Private Activity',
-        subtitle: 'Only you can see your activity',
-      );
-    }
+    // Show activity for all users, not just own profile
 
     return SingleChildScrollView(
       padding: const EdgeInsets.only(bottom: 16),
@@ -402,6 +349,80 @@ class ProfileTabs extends StatelessWidget {
     );
   }
 
+  Widget _buildEditablePostCard(BuildContext context, Post post) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: EnhancedPostCard(
+        postId: post.id,
+        title: post.title,
+        description: post.description,
+        items:
+            post.items
+                .map(
+                  (item) => ListItem(
+                    id: item.id,
+                    text: item.text,
+                    url: item.url,
+                    isCompleted: item.isCompleted,
+                    completionCount: item.completionCount,
+                  ),
+                )
+                .toList(),
+        likeCount: post.likeCount,
+        commentCount: post.commentCount,
+        viewCount: post.viewCount,
+        isTrending: post.isTrending,
+        isBookmarked: false,
+        imageUrls: post.imageUrls,
+        videoUrl: post.videoUrl,
+        category: post.category,
+        createdAt: post.createdAt,
+        authorId: post.authorId,
+        authorName: post.authorName,
+        authorAvatar: post.authorAvatar, // Always show avatar
+        itemCompletions: null,
+        onTap: () {
+          if (onPostClick != null) {
+            onPostClick!(post.id);
+          }
+        },
+        onLike: () {
+          // Handle like
+        },
+        onBookmark: () {
+          // Handle bookmark
+        },
+        onShare: () {
+          // Handle share
+        },
+        onComment: () {
+          // Handle comment
+        },
+        onItemToggle: (itemId, isCompleted) {
+          // Handle item toggle
+        },
+        // Add edit callback for own profile
+        onEdit: isOwnProfile ? () => _editPost(context, post) : null,
+      ),
+    );
+  }
+
+  Future<void> _editPost(BuildContext context, Post post) async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (context) => EditPostScreen(post: post)),
+    );
+
+    if (result == true && context.mounted) {
+      // Post was updated successfully, show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Post updated successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
   Widget _buildEmptyState({
     required IconData icon,
     required String title,
@@ -430,5 +451,32 @@ class ProfileTabs extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Preload images for a list of posts
+  void _preloadPostImages(List<Post> posts) {
+    // Collect all image URLs from all posts
+    final List<String> allImageUrls = [];
+
+    for (final post in posts) {
+      // Add post images
+      allImageUrls.addAll(post.imageUrls);
+
+      // Add author avatar if it exists
+      if (post.authorAvatar != null && post.authorAvatar!.isNotEmpty) {
+        allImageUrls.add(post.authorAvatar!);
+      }
+    }
+
+    // Remove duplicates and empty URLs
+    final uniqueImageUrls =
+        allImageUrls.where((url) => url.isNotEmpty).toSet().toList();
+
+    if (uniqueImageUrls.isNotEmpty) {
+      // Preload images asynchronously (don't wait for completion)
+      ImagePreloadService().preloadImages(uniqueImageUrls).catchError((error) {
+        print('Error preloading images: $error');
+      });
+    }
   }
 }

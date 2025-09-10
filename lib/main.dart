@@ -9,6 +9,7 @@ import 'screens/username_setup_screen.dart';
 import 'screens/email_verification_screen.dart';
 import 'services/auth_service.dart';
 import 'services/onboarding_service.dart';
+import 'services/image_preload_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,6 +32,7 @@ class MainApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: NavigationService.navigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'Listick',
       theme: ThemeData(

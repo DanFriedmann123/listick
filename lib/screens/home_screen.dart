@@ -4,6 +4,7 @@ import '../services/user_service.dart';
 import '../services/auth_service.dart';
 import '../services/demo_content_service.dart';
 import '../services/post_service.dart';
+import '../services/image_preload_service.dart';
 import '../models/post.dart';
 import '../widgets/enhanced_post_card.dart';
 import '../models/list_item.dart';
@@ -29,6 +30,9 @@ class _HomeScreenState extends State<HomeScreen>
   final AuthService _authService = AuthService();
   final DemoContentService _demoContentService = DemoContentService();
   final PostService _postService = PostService();
+  final ImagePreloadService _imagePreloadService = ImagePreloadService();
+  final ScrollController _followingScrollController = ScrollController();
+  final ScrollController _inspirationScrollController = ScrollController();
   Map<String, dynamic>? _userProfile;
   late TabController _tabController;
   bool _isProfileLoading = true;
@@ -43,6 +47,8 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     _tabController.dispose();
+    _followingScrollController.dispose();
+    _inspirationScrollController.dispose();
     super.dispose();
   }
 
@@ -65,6 +71,33 @@ class _HomeScreenState extends State<HomeScreen>
           _isProfileLoading = false;
         });
       }
+    }
+  }
+
+  /// Preload images for a list of posts
+  void _preloadPostImages(List<Post> posts) {
+    // Collect all image URLs from all posts
+    final List<String> allImageUrls = [];
+
+    for (final post in posts) {
+      // Add post images
+      allImageUrls.addAll(post.imageUrls);
+
+      // Add author avatar if it exists
+      if (post.authorAvatar != null && post.authorAvatar!.isNotEmpty) {
+        allImageUrls.add(post.authorAvatar!);
+      }
+    }
+
+    // Remove duplicates and empty URLs
+    final uniqueImageUrls =
+        allImageUrls.where((url) => url.isNotEmpty).toSet().toList();
+
+    if (uniqueImageUrls.isNotEmpty) {
+      // Preload images asynchronously (don't wait for completion)
+      _imagePreloadService.preloadImages(uniqueImageUrls).catchError((error) {
+        print('Error preloading images: $error');
+      });
     }
   }
 
@@ -186,6 +219,95 @@ class _HomeScreenState extends State<HomeScreen>
 
   Widget _buildFollowingTab(ThemeData theme) {
     return SingleChildScrollView(
+      controller: _followingScrollController,
+      child: Column(
+        children: [
+          // Following Posts Section
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'From People You Follow',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 16),
+                // Posts from users you follow
+                StreamBuilder<List<Post>>(
+                  stream: _postService.getFollowingPostsStream(limit: 20),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Text(
+                          'Error loading following posts: ${snapshot.error}',
+                          style: TextStyle(color: Colors.red),
+                        ),
+                      );
+                    }
+
+                    final followingPosts = snapshot.data ?? [];
+
+                    // Preload images for following posts
+                    if (followingPosts.isNotEmpty) {
+                      _preloadPostImages(followingPosts);
+                    }
+
+                    if (followingPosts.isEmpty) {
+                      return Container(
+                        padding: const EdgeInsets.all(32),
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.people,
+                              size: 64,
+                              color: Colors.grey[600],
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'No posts from people you follow',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Follow some people to see their posts here!',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: Colors.grey[500],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    return Column(
+                      children:
+                          followingPosts
+                              .map((post) => _buildPostCard(post, theme))
+                              .toList(),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInspirationTab(ThemeData theme) {
+    return SingleChildScrollView(
+      controller: _inspirationScrollController,
       child: Column(
         children: [
           // Search and Discovery Widget
@@ -220,89 +342,7 @@ class _HomeScreenState extends State<HomeScreen>
 
           const SizedBox(height: 24),
 
-          // Real Posts Feed
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Recent Posts',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 16),
-                // Real posts from all users
-                StreamBuilder<List<Post>>(
-                  stream: _postService.getPostsStream(limit: 10),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-
-                    if (snapshot.hasError) {
-                      return Center(
-                        child: Text(
-                          'Error loading posts: ${snapshot.error}',
-                          style: TextStyle(color: Colors.red),
-                        ),
-                      );
-                    }
-
-                    final posts = snapshot.data ?? [];
-
-                    if (posts.isEmpty) {
-                      return Container(
-                        padding: const EdgeInsets.all(32),
-                        child: Column(
-                          children: [
-                            Icon(
-                              Icons.post_add,
-                              size: 64,
-                              color: Colors.grey[600],
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'No posts yet',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Be the first to create a post!',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: Colors.grey[500],
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-
-                    return Column(
-                      children:
-                          posts
-                              .map((post) => _buildPostCard(post, theme))
-                              .toList(),
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInspirationTab(ThemeData theme) {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          // Trending posts section
+          // Popular Now Section
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
@@ -355,6 +395,11 @@ class _HomeScreenState extends State<HomeScreen>
                     }
 
                     final popularPosts = snapshot.data ?? [];
+
+                    // Preload images for popular posts
+                    if (popularPosts.isNotEmpty) {
+                      _preloadPostImages(popularPosts);
+                    }
 
                     if (popularPosts.isEmpty) {
                       return Container(
@@ -452,6 +497,11 @@ class _HomeScreenState extends State<HomeScreen>
                     }
 
                     final recentPosts = snapshot.data ?? [];
+
+                    // Preload images for recent posts
+                    if (recentPosts.isNotEmpty) {
+                      _preloadPostImages(recentPosts);
+                    }
 
                     if (recentPosts.isEmpty) {
                       return Container(
@@ -710,6 +760,7 @@ class _HomeScreenState extends State<HomeScreen>
           ProfileTabs(
             tabController: _tabController,
             isOwnProfile: true,
+            userId: user.uid,
             onPostClick: null,
           ),
         ],
@@ -871,6 +922,10 @@ class _PostCardWithCompletionsState extends State<_PostCardWithCompletions> {
     }
   }
 
+  void refreshCompletions() {
+    _loadItemCompletions();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoadingCompletions) {
@@ -905,6 +960,7 @@ class _PostCardWithCompletionsState extends State<_PostCardWithCompletions> {
       videoUrl: widget.post.videoUrl,
       category: widget.post.category,
       createdAt: widget.post.createdAt,
+      authorId: widget.post.authorId,
       authorName: widget.post.authorName,
       authorAvatar: widget.post.authorAvatar,
       itemCompletions: _itemCompletions,
@@ -912,30 +968,7 @@ class _PostCardWithCompletionsState extends State<_PostCardWithCompletions> {
         // TODO: Navigate to post detail
         debugPrint('Tapped on post: ${widget.post.title}');
       },
-      onLike: () async {
-        try {
-          final postService = PostService();
-          await postService.toggleLike(widget.post.id);
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text('Error: $e')));
-          }
-        }
-      },
-      onBookmark: () async {
-        try {
-          final postService = PostService();
-          await postService.toggleBookmark(widget.post.id);
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text('Error: $e')));
-          }
-        }
-      },
+      // onLike and onBookmark are handled internally by EnhancedPostCard
       onShare: () {
         // TODO: Implement share functionality
         debugPrint('Share post: ${widget.post.title}');
@@ -965,6 +998,7 @@ class _PostCardWithCompletionsState extends State<_PostCardWithCompletions> {
           }
         }
       },
+      onRefresh: refreshCompletions,
     );
   }
 }
